@@ -29,7 +29,13 @@ echo "==> Installing Pantheon desktop (full group, minus conflicting greeter)"
 # pacman's --ignore on a group member still installs it under --noconfirm (it
 # auto-answers "Install anyway? [Y/n]" with Y), dragging in mutter46 -> conflict.
 # So enumerate the group and drop the greeter explicitly.
-mapfile -t pantheon_pkgs < <(pacman -Sgq pantheon | grep -vx lightdm-pantheon-greeter)
+#
+# Also drop the wingpanel indicators that are version-skewed against wingpanel
+# 8.0.4: their schemas were renamed (io.elementary.panel.* ->
+# io.elementary.desktop.wingpanel.*) or aren't shipped, so loading them aborts
+# the whole panel. Re-add once Arch rebuilds them. See tracking issue.
+drop='^(lightdm-pantheon-greeter|wingpanel-indicator-(bluetooth|power|keyboard|network|nightlight))$'
+mapfile -t pantheon_pkgs < <(pacman -Sgq pantheon | grep -vE "$drop")
 sudo pacman -S --needed --noconfirm "${pantheon_pkgs[@]}" \
   lightdm-gtk-greeter network-manager-applet polkit-gnome openssh \
   sound-theme-elementary elementary-icon-theme elementary-wallpapers \
@@ -56,7 +62,9 @@ sudo tee /etc/xdg/autostart/plank.desktop >/dev/null <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Plank
-Exec=plank
+# plank is X11-only and refuses to start when logind reports a Wayland session.
+# Force it through Xwayland: spoof the session type and pin the GDK backend.
+Exec=env -u WAYLAND_DISPLAY GDK_BACKEND=x11 XDG_SESSION_TYPE=x11 plank
 OnlyShowIn=Pantheon;
 EOF
 # Default the greeter to Pantheon (Wayland) instead of the GNOME fallback.
