@@ -28,8 +28,12 @@ echo "==> Installing Pantheon desktop (full group, minus conflicting greeter)"
 # with the regular mutter that gala itself needs. Known upstream packaging
 # lag (wingpanel/gala get temporarily pinned to older mutter each cycle).
 # We use lightdm-gtk-greeter instead -- same login manager, different greeter UI.
-sudo pacman -S --needed --noconfirm --ignore lightdm-pantheon-greeter \
-  pantheon lightdm-gtk-greeter network-manager-applet polkit-gnome openssh \
+# pacman's --ignore on a group member still installs it under --noconfirm (it
+# auto-answers "Install anyway? [Y/n]" with Y), dragging in mutter46 -> conflict.
+# So enumerate the group and drop the greeter explicitly.
+mapfile -t pantheon_pkgs < <(pacman -Sgq pantheon | grep -vx lightdm-pantheon-greeter)
+sudo pacman -S --needed --noconfirm "${pantheon_pkgs[@]}" \
+  lightdm-gtk-greeter network-manager-applet polkit-gnome openssh \
   sound-theme-elementary elementary-icon-theme elementary-wallpapers \
   pantheon-default-settings networkmanager
 
@@ -54,23 +58,30 @@ if ! command -v yay &>/dev/null; then
   rm -rf "$tmpdir"
 fi
 
-echo "==> Installing tweaks panel from AUR"
-yay -S --needed --noconfirm switchboard-plug-pantheon-tweaks-git
+echo "==> Installing tweaks panel from AUR (best-effort)"
+# switchboard-plug-pantheon-tweaks-git is currently stale: it wants
+# libswitchboard-2.0.so, but switchboard 8.x ships libswitchboard-3.so. Skip it
+# rather than abort the whole run; retry once the AUR package catches up.
+yay -S --needed --noconfirm switchboard-plug-pantheon-tweaks-git \
+  || echo "   skipped: tweaks plug incompatible with current switchboard"
 
 echo "==> Installing Btrfs snapshot tools"
 sudo pacman -S --needed --noconfirm snapper grub-btrfs inotify-tools
 yay -S --needed --noconfirm snap-pac
 
 echo "==> Configuring Snapper for root subvolume"
-if [ -d /.snapshots ]; then
-  sudo umount /.snapshots || true
-  sudo rm -rf /.snapshots
+# Skip if already configured -- create-config errors when the root config exists.
+if ! sudo snapper list-configs 2>/dev/null | grep -qw root; then
+  if [ -d /.snapshots ]; then
+    sudo umount /.snapshots 2>/dev/null || true
+    sudo rm -rf /.snapshots
+  fi
+  sudo snapper -c root create-config /
+  sudo btrfs subvolume delete /.snapshots 2>/dev/null || true
+  sudo mkdir -p /.snapshots
+  sudo mount -a
+  sudo chmod 750 /.snapshots
 fi
-sudo snapper -c root create-config /
-sudo btrfs subvolume delete /.snapshots || true
-sudo mkdir -p /.snapshots
-sudo mount -a
-sudo chmod 750 /.snapshots
 
 echo "==> Enabling automatic snapshot timers"
 sudo systemctl enable --now snapper-timeline.timer
