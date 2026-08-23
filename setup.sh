@@ -24,10 +24,8 @@ if ! grep -q '^IgnorePkg.*lightdm-pantheon-greeter' /etc/pacman.conf; then
 fi
 
 echo "==> Installing Pantheon desktop (full group, minus conflicting greeter)"
-# lightdm-pantheon-greeter is ignored: it depends on mutter46, which conflicts
-# with the regular mutter that gala itself needs. Known upstream packaging
-# lag (wingpanel/gala get temporarily pinned to older mutter each cycle).
-# We use lightdm-gtk-greeter instead -- same login manager, different greeter UI.
+# lightdm-pantheon-greeter depends on mutter46, which conflicts with the mutter
+# gala needs. We use lightdm-gtk-greeter instead -- same login manager.
 # pacman's --ignore on a group member still installs it under --noconfirm (it
 # auto-answers "Install anyway? [Y/n]" with Y), dragging in mutter46 -> conflict.
 # So enumerate the group and drop the greeter explicitly.
@@ -42,6 +40,40 @@ sudo pacman -S --needed --noconfirm \
   pantheon-files pantheon-terminal pantheon-screenshot \
   gnome-keyring gvfs file-roller xdg-user-dirs xdg-utils
 xdg-user-dirs-update
+
+echo "==> Wiring up the Pantheon session"
+# The Arch pantheon-wayland session only autostarts gala, so you land on a bare
+# wallpaper with no panel or dock. The wiki's fix is XDG autostart entries.
+sudo tee /etc/xdg/autostart/io.elementary.wingpanel.desktop >/dev/null <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Wingpanel
+Exec=io.elementary.wingpanel
+OnlyShowIn=Pantheon;
+X-GNOME-Autostart-Phase=Panel
+EOF
+sudo tee /etc/xdg/autostart/plank.desktop >/dev/null <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Plank
+Exec=plank
+OnlyShowIn=Pantheon;
+EOF
+# Default the greeter to Pantheon (Wayland) instead of the GNOME fallback.
+sudo mkdir -p /etc/lightdm/lightdm.conf.d
+sudo tee /etc/lightdm/lightdm.conf.d/50-pantheon-default.conf >/dev/null <<'EOF'
+[Seat:*]
+user-session=pantheon-wayland
+EOF
+# Arch ships no X11 session for Pantheon; startx is the only X11 route (wiki).
+sudo pacman -S --needed --noconfirm xorg-xinit
+cat > "$HOME/.xinitrc" <<'EOF'
+#!/bin/sh
+# Pantheon on X11 (Arch wiki). Log in on a TTY and run: startx
+io.elementary.wingpanel &
+plank &
+exec gala
+EOF
 
 echo "==> Enabling services"
 sudo systemctl enable lightdm
