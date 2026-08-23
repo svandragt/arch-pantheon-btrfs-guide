@@ -65,14 +65,24 @@ sudo tee /etc/lightdm/lightdm.conf.d/50-pantheon-default.conf >/dev/null <<'EOF'
 [Seat:*]
 user-session=pantheon-wayland
 EOF
-# Arch ships no X11 session for Pantheon; startx is the only X11 route (wiki).
-sudo pacman -S --needed --noconfirm xorg-xinit
-cat > "$HOME/.xinitrc" <<'EOF'
-#!/bin/sh
-# Pantheon on X11 (Arch wiki). Log in on a TTY and run: startx
-io.elementary.wingpanel &
-plank &
-exec gala
+# Arch ships only the Wayland "Secure Session". Add elementary's X11 "Classic
+# Session" so both show in the greeter. Derive its gnome-session definition from
+# the Wayland one (swap the compositor to X11 gala) so it tracks upstream's
+# component list. The autostart entries above cover both sessions.
+sudo sed -e 's/^Name=.*/Name=Pantheon (X11)/' -e 's/gala-wayland/gala/' \
+  -e '/^FallbackSession=/d' \
+  /usr/share/gnome-session/sessions/pantheon-wayland.session \
+  | sudo tee /usr/share/gnome-session/sessions/pantheon.session >/dev/null
+sudo mkdir -p /usr/share/xsessions
+sudo tee /usr/share/xsessions/pantheon.desktop >/dev/null <<'EOF'
+[Desktop Entry]
+Name=Classic Session
+Comment=Pantheon on X11
+Exec=gnome-session --session=pantheon
+TryExec=io.elementary.wingpanel
+Icon=
+DesktopNames=Pantheon
+Type=Application
 EOF
 
 echo "==> Enabling services"
